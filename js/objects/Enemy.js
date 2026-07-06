@@ -1,8 +1,8 @@
-// src/objects/Enemy.js
+// js/objects/Enemy.js
 
-class Enemy extends Phaser.GameObjects.Graphics {
+class Enemy extends Phaser.GameObjects.Container {
     constructor(scene, path, enemyConfig) {
-        super(scene);
+        super(scene, 0, 0);
         this.scene = scene;
         this.path = path;
         this.enemyConfig = enemyConfig;
@@ -23,42 +23,39 @@ class Enemy extends Phaser.GameObjects.Graphics {
         this.poisonLastTickTime = 0;
         this.poisonEffectGraphic = null;
 
-        this.drawEnemy();
+        this.sprite = scene.add.sprite(0, 0, this.spriteKey);
+        const baseSpriteSize = GAME_CONFIG.TILE_SIZE * 0.6;
+        const scale = baseSpriteSize / Math.max(this.sprite.width, this.sprite.height);
+        this.sprite.setScale(scale);
+        this.add(this.sprite);
+
+        this.healthBar = this.scene.add.graphics();
+        this.add(this.healthBar);
         this.drawHealthBar();
 
         scene.add.existing(this);
-    }
-
-    drawEnemy() {
-        this.clear();
-        this.fillStyle(this.color, 1);
-
-        if (this.enemyConfig.id === 'abomination_tank') {
-            this.fillRect(-GAME_CONFIG.TILE_SIZE / 3, -GAME_CONFIG.TILE_SIZE / 3, GAME_CONFIG.TILE_SIZE * 2 / 3, GAME_CONFIG.TILE_SIZE * 2 / 3);
-            this.lineStyle(2, 0xFFFFFF, 0.8);
-            this.strokeRect(-GAME_CONFIG.TILE_SIZE / 3, -GAME_CONFIG.TILE_SIZE / 3, GAME_CONFIG.TILE_SIZE * 2 / 3, GAME_CONFIG.TILE_SIZE * 2 / 3);
-        } else {
-            this.fillCircle(0, 0, GAME_CONFIG.TILE_SIZE / 4);
-            this.lineStyle(2, 0xFFFFFF, 0.8);
-            this.strokeCircle(0, 0, GAME_CONFIG.TILE_SIZE / 4);
-        }
+        scene.physics.world.enable(this);
+        this.body.setCircle(this.sprite.width * scale / 2);
+        this.body.setAllowGravity(false);
+        this.body.setImmovable(true);
+        this.body.debugShowBody = false;
     }
 
     drawHealthBar() {
         if (this.healthBar) {
-            this.healthBar.destroy();
+            this.healthBar.clear();
         }
-        const barWidth = GAME_CONFIG.TILE_SIZE / 2;
-        const barHeight = 10;
+        const barWidth = this.sprite.width * this.sprite.scaleX;
+        const barHeight = 8;
         const healthRatio = this.health / this.maxHealth;
         const healthColor = healthRatio > 0.6 ? 0x00FF00 : (healthRatio > 0.3 ? 0xFFFF00 : 0xFF0000);
 
-        this.healthBar = this.scene.add.graphics();
+        const barYOffset = -this.sprite.height * this.sprite.scaleY / 2 - barHeight - 5;
+
         this.healthBar.fillStyle(0x000000, 0.5);
-        this.healthBar.fillRect(-barWidth / 2, -GAME_CONFIG.TILE_SIZE / 3, barWidth, barHeight);
+        this.healthBar.fillRect(-barWidth / 2, barYOffset, barWidth, barHeight);
         this.healthBar.fillStyle(healthColor, 1);
-        this.healthBar.fillRect(-barWidth / 2, -GAME_CONFIG.TILE_SIZE / 3, barWidth * healthRatio, barHeight);
-        this.add(this.healthBar);
+        this.healthBar.fillRect(-barWidth / 2, barYOffset, barWidth * healthRatio, barHeight);
     }
 
     startFollowingPath() {
@@ -78,10 +75,6 @@ class Enemy extends Phaser.GameObjects.Graphics {
     update(time, delta) {
         this.path.getPoint(this.follower.t, this.follower.vec);
         this.setPosition(this.follower.vec.x, this.follower.vec.y);
-        this.healthBar.setPosition(this.follower.vec.x, this.follower.vec.y);
-        if (this.poisonEffectGraphic) {
-             this.poisonEffectGraphic.setPosition(this.follower.vec.x, this.follower.vec.y);
-        }
 
         if (this.isPoisoned && time > this.poisonLastTickTime + 1000) {
             this.takeDamage(this.poisonTickDamage, 'poison');
@@ -94,11 +87,11 @@ class Enemy extends Phaser.GameObjects.Graphics {
         this.drawHealthBar();
 
         this.scene.tweens.add({
-            targets: this,
+            targets: this.sprite,
             tint: 0xff0000,
             duration: 100,
             yoyo: true,
-            onComplete: () => { this.tint = 0xffffff; }
+            onComplete: () => { this.sprite.tint = 0xffffff; }
         });
 
         if (this.health <= 0) {
@@ -115,11 +108,12 @@ class Enemy extends Phaser.GameObjects.Graphics {
         this.isPoisoned = true;
         this.poisonTickDamage = tickDamage;
         this.poisonLastTickTime = this.scene.time.now;
-        this.setTint(0x5500FF);
+        this.sprite.setTint(0x5500FF);
 
         if (!this.poisonEffectGraphic) {
-            this.poisonEffectGraphic = this.scene.add.circle(this.x, this.y, GAME_CONFIG.TILE_SIZE / 4, 0x5500FF, 0.3)
+            this.poisonEffectGraphic = this.scene.add.circle(0, 0, this.sprite.width * this.sprite.scaleX / 2, 0x5500FF, 0.3)
                 .setDepth(1);
+            this.add(this.poisonEffectGraphic);
         } else {
             this.poisonEffectGraphic.setVisible(true);
             this.poisonEffectGraphic.setAlpha(0.3);
@@ -134,7 +128,7 @@ class Enemy extends Phaser.GameObjects.Graphics {
 
         this.poisonTimer = this.scene.time.delayedCall(duration, () => {
             this.isPoisoned = false;
-            this.clearTint();
+            this.sprite.clearTint();
             this.poisonTimer = null;
             if (this.poisonEffectGraphic) {
                 this.poisonEffectGraphic.destroy();
