@@ -1,78 +1,162 @@
-class Enemy extends Phaser.GameObjects.PathFollower {
-    constructor(scene, path, enemyTypeConfig) {
-        // Create placeholder graphic (e.g., a circle)
-        const radius = GAME_CONFIG.TILE_SIZE / 4;
-        const graphics = scene.add.graphics();
-        graphics.fillStyle(enemyTypeConfig.color, 1);
-        graphics.fillCircle(0, 0, radius);
-        // We'll use this graphic as a texture for the sprite
-        graphics.generateTexture(enemyTypeConfig.assetKey + '_graphic', radius * 2, radius * 2);
-        graphics.destroy(); // Destroy the graphics object, keep the texture
+// src/objects/Enemy.js
 
-        super(scene, path, 0, 0, enemyTypeConfig.assetKey + '_graphic'); // Start at 0,0 for path follower
+class Enemy extends Phaser.GameObjects.Graphics {
+    constructor(scene, path, enemyConfig) {
+        super(scene);
         this.scene = scene;
-        this.enemyType = enemyTypeConfig.name;
-        this.stats = { ...enemyTypeConfig.stats }; // Copy stats to allow individual modifications
-        this.currentHealth = this.stats.health;
-        this.goldValue = this.stats.goldValue;
-        this.bountyXP = this.stats.bountyXP;
+        this.path = path;
+        this.enemyConfig = enemyConfig;
+
+        this.health = enemyConfig.health;
+        this.maxHealth = enemyConfig.health;
+        this.speed = enemyConfig.speed;
+        this.goldReward = enemyConfig.goldReward;
+        this.spriteKey = enemyConfig.spriteKey;
+        this.color = enemyConfig.color;
+        this.xpReward = enemyConfig.xpReward || Math.round(enemyConfig.health / 10);
+
+        this.follower = { t: 0, vec: new Phaser.Math.Vector2() };
+
+        this.isPoisoned = false;
+        this.poisonTimer = null;
+        this.poisonTickDamage = 0;
+        this.poisonLastTickTime = 0;
+        this.poisonEffectGraphic = null;
+
+        this.drawEnemy();
+        this.drawHealthBar();
 
         scene.add.existing(this);
-        scene.physics.world.enable(this); // Enable physics for collision detection
-        this.body.setCircle(radius);
-        this.setOrigin(0.5); // Center the origin
-        this.startFollow({
-            duration: (path.getLength() / this.stats.speed) * 1000, // Calculate duration based on path length and speed
-            yoyo: false,
+    }
+
+    drawEnemy() {
+        this.clear();
+        this.fillStyle(this.color, 1);
+
+        if (this.enemyConfig.id === 'abomination_tank') {
+            this.fillRect(-GAME_CONFIG.TILE_SIZE / 3, -GAME_CONFIG.TILE_SIZE / 3, GAME_CONFIG.TILE_SIZE * 2 / 3, GAME_CONFIG.TILE_SIZE * 2 / 3);
+            this.lineStyle(2, 0xFFFFFF, 0.8);
+            this.strokeRect(-GAME_CONFIG.TILE_SIZE / 3, -GAME_CONFIG.TILE_SIZE / 3, GAME_CONFIG.TILE_SIZE * 2 / 3, GAME_CONFIG.TILE_SIZE * 2 / 3);
+        } else {
+            this.fillCircle(0, 0, GAME_CONFIG.TILE_SIZE / 4);
+            this.lineStyle(2, 0xFFFFFF, 0.8);
+            this.strokeCircle(0, 0, GAME_CONFIG.TILE_SIZE / 4);
+        }
+    }
+
+    drawHealthBar() {
+        if (this.healthBar) {
+            this.healthBar.destroy();
+        }
+        const barWidth = GAME_CONFIG.TILE_SIZE / 2;
+        const barHeight = 10;
+        const healthRatio = this.health / this.maxHealth;
+        const healthColor = healthRatio > 0.6 ? 0x00FF00 : (healthRatio > 0.3 ? 0xFFFF00 : 0xFF0000);
+
+        this.healthBar = this.scene.add.graphics();
+        this.healthBar.fillStyle(0x000000, 0.5);
+        this.healthBar.fillRect(-barWidth / 2, -GAME_CONFIG.TILE_SIZE / 3, barWidth, barHeight);
+        this.healthBar.fillStyle(healthColor, 1);
+        this.healthBar.fillRect(-barWidth / 2, -GAME_CONFIG.TILE_SIZE / 3, barWidth * healthRatio, barHeight);
+        this.add(this.healthBar);
+    }
+
+    startFollowingPath() {
+        this.scene.tweens.add({
+            targets: this.follower,
+            t: 1,
+            ease: 'Linear',
+            duration: (this.path.getLength() / this.speed) * 1000,
             repeat: 0,
-            rotateToPath: true,
-            onComplete: this.reachedEndOfPath,
-            scope: this
+            yoyo: false,
+            onComplete: () => {
+                this.reachedEndOfPath = true;
+            }
         });
     }
 
-    takeDamage(amount) {
-        this.currentHealth -= amount;
-        if (this.currentHealth <= 0) {
-            this.die();
-            return true;
+    update(time, delta) {
+        this.path.getPoint(this.follower.t, this.follower.vec);
+        this.setPosition(this.follower.vec.x, this.follower.vec.y);
+        this.healthBar.setPosition(this.follower.vec.x, this.follower.vec.y);
+        if (this.poisonEffectGraphic) {
+             this.poisonEffectGraphic.setPosition(this.follower.vec.x, this.follower.vec.y);
         }
-        // Visual feedback for damage taken (e.g., flash red)
+
+        if (this.isPoisoned && time > this.poisonLastTickTime + 1000) {
+            this.takeDamage(this.poisonTickDamage, 'poison');
+            this.poisonLastTickTime = time;
+        }
+    }
+
+    takeDamage(amount, damageType = 'normal') {
+        this.health -= amount;
+        this.drawHealthBar();
+
         this.scene.tweens.add({
             targets: this,
             tint: 0xff0000,
             duration: 100,
             yoyo: true,
-            onComplete: () => { this.tint = 0xffffff; } // Reset tint
+            onComplete: () => { this.tint = 0xffffff; }
         });
-        return false;
+
+        if (this.health <= 0) {
+            this.scene.events.emit('enemyDeath', this, this.goldReward, this.xpReward);
+            this.destroy();
+        }
     }
 
-    die() {
-        // Stop following path, disable body
-        this.stopFollow();
-        this.body.enable = false;
-        // Reward gold and XP
-        this.scene.events.emit('enemyKilled', this.goldValue, this.bountyXP);
-        // Play death animation/sound (placeholder)
+    applyPoison(duration, tickDamage) {
+        if (this.isPoisoned) {
+            this.scene.time.removeEvent(this.poisonTimer);
+        }
+
+        this.isPoisoned = true;
+        this.poisonTickDamage = tickDamage;
+        this.poisonLastTickTime = this.scene.time.now;
+        this.setTint(0x5500FF);
+
+        if (!this.poisonEffectGraphic) {
+            this.poisonEffectGraphic = this.scene.add.circle(this.x, this.y, GAME_CONFIG.TILE_SIZE / 4, 0x5500FF, 0.3)
+                .setDepth(1);
+        } else {
+            this.poisonEffectGraphic.setVisible(true);
+            this.poisonEffectGraphic.setAlpha(0.3);
+        }
         this.scene.tweens.add({
-            targets: this,
-            alpha: 0,
-            scale: 0.1,
-            duration: 300,
-            onComplete: () => {
-                this.destroy(); // Remove enemy from scene
-            }
+            targets: this.poisonEffectGraphic,
+            alpha: { from: 0.3, to: 0.6 },
+            duration: 500,
+            yoyo: true,
+            repeat: -1
         });
+
+        this.poisonTimer = this.scene.time.delayedCall(duration, () => {
+            this.isPoisoned = false;
+            this.clearTint();
+            this.poisonTimer = null;
+            if (this.poisonEffectGraphic) {
+                this.poisonEffectGraphic.destroy();
+                this.poisonEffectGraphic = null;
+            }
+        }, [], this);
     }
 
-    reachedEndOfPath() {
-        console.log(`${this.enemyType} reached the end of the path!`);
-        this.scene.events.emit('enemyLeaked'); // Notify MainScene
-        this.destroy();
+    isAtEndOfPath() {
+        return this.follower.t >= 1;
     }
 
-    update(time, delta) {
-        // Any specific enemy update logic (e.g., poison effects, special abilities)
+    destroy(fromScene) {
+        if (this.healthBar) {
+            this.healthBar.destroy();
+        }
+        if (this.poisonTimer) {
+            this.poisonTimer.remove();
+        }
+        if (this.poisonEffectGraphic) {
+            this.poisonEffectGraphic.destroy();
+        }
+        super.destroy(fromScene);
     }
 }
