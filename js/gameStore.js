@@ -12,7 +12,7 @@ class GameStore {
             score: 0,
             isAdFree: false,
             hasDoubleGoldPass: false,
-            permanentUpgrades: { // Stores level of purchased upgrades
+            permanentUpgrades: {
                 'starting_gold_bonus': 0,
                 'hero_starting_hp': 0,
                 'all_towers_atk_bonus': 0,
