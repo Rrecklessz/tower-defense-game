@@ -1,4 +1,4 @@
-// src/config/gameConfig.js
+// js/config/gameConfig.js
 
 const GAME_WIDTH = 1080;
 const GAME_HEIGHT = 1920; // Mobile portrait ratio (9:16)
@@ -21,6 +21,7 @@ const GAME_CONFIG = {
             towerType: 'MageTower',
             description: 'High range, slow attack with arcane damage.',
             color: 0x00AADD, // Blue
+            spriteKey: 'human_tower',
             stats: {
                 attack: 30,
                 range: 300,
@@ -34,6 +35,7 @@ const GAME_CONFIG = {
             towerType: 'ShamanTotem',
             description: 'High damage, splash area-of-effect with nature damage.',
             color: 0xAA0000, // Red
+            spriteKey: 'orc_totem',
             stats: {
                 attack: 50,
                 range: 200,
@@ -48,6 +50,7 @@ const GAME_CONFIG = {
             towerType: 'NecromancerSpire',
             description: 'Fast attack, applies poison damage over time.',
             color: 0x5500AA, // Purple
+            spriteKey: 'undead_spire',
             stats: {
                 attack: 15,
                 range: 250,
@@ -66,7 +69,7 @@ const GAME_CONFIG = {
             health: 100,
             speed: 80, // pixels per second
             goldReward: 5,
-            spriteKey: 'murloc_scout_sprite',
+            spriteKey: 'murloc_scout',
             color: 0x00EE00 // Green
         },
         GHOUL_RUSHER: {
@@ -75,7 +78,7 @@ const GAME_CONFIG = {
             health: 180,
             speed: 120,
             goldReward: 8,
-            spriteKey: 'ghoul_rusher_sprite',
+            spriteKey: 'ghoul_rusher',
             color: 0x888888 // Grey
         },
         ABOMINATION_TANK: {
@@ -84,7 +87,7 @@ const GAME_CONFIG = {
             health: 800,
             speed: 40,
             goldReward: 25,
-            spriteKey: 'abomination_tank_sprite',
+            spriteKey: 'abomination_tank',
             color: 0x442200 // Brown
         }
     },
@@ -138,6 +141,7 @@ const GAME_CONFIG = {
         initialAttack: 20,
         initialRange: 150,
         initialSpeed: 100, // pixels per second
-        xpToLevel: [100, 250, 500, 1000, 1500, 2500, 4000, 6000, 9000]
+        xpToLevel: [100, 250, 500, 1000, 1500, 2500, 4000, 6000, 9000],
+        spriteKey: 'hero_sprite'
     }
 };
