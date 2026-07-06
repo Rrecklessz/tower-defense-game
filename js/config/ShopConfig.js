@@ -1,4 +1,4 @@
-// src/config/shopConfig.js
+// js/config/shopConfig.js
 
 const SHOP_CONFIG = {
     PERMANENT_UPGRADES: {
@@ -7,7 +7,7 @@ const SHOP_CONFIG = {
             description: 'Start each game with more gold.',
             baseCost: 100,
             costMultiplier: 1.5,
-            effect: (level) => level * 50, // +50 gold per level
+            effect: (level) => level * 50,
             maxLevel: 10
         },
         'hero_starting_hp': {
@@ -15,7 +15,7 @@ const SHOP_CONFIG = {
             description: 'Increase your hero\'s initial health.',
             baseCost: 150,
             costMultiplier: 1.4,
-            effect: (level) => level * 50, // +50 HP per level
+            effect: (level) => level * 50,
             maxLevel: 15
         },
         'all_towers_atk_bonus': {
@@ -23,7 +23,7 @@ const SHOP_CONFIG = {
             description: 'Increase the attack damage of all your towers.',
             baseCost: 200,
             costMultiplier: 1.6,
-            effect: (level) => level * 5, // +5 attack per level
+            effect: (level) => level * 5,
             maxLevel: 20
         },
         'wave_gold_bonus': {
@@ -31,7 +31,7 @@ const SHOP_CONFIG = {
             description: 'Gain more gold from completing waves.',
             baseCost: 120,
             costMultiplier: 1.3,
-            effect: (level) => level * 0.05, // +5% gold per wave level
+            effect: (level) => level * 0.05,
             maxLevel: 10
         }
     }
