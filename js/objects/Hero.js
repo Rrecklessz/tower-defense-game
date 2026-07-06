@@ -1,12 +1,9 @@
-// src/objects/Hero.js
+// js/objects/Hero.js
 
-class Hero extends Phaser.GameObjects.Graphics {
+class Hero extends Phaser.GameObjects.Container {
     constructor(scene, x, y, stats) {
-        super(scene);
+        super(scene, x, y);
         this.scene = scene;
-
-        this.x = x;
-        this.y = y;
 
         this.stats = {
             health: stats.initialHealth,
@@ -26,45 +23,63 @@ class Hero extends Phaser.GameObjects.Graphics {
 
         this.movementTarget = new Phaser.Math.Vector2(x, y);
 
-        this.drawHero();
-        this.drawHealthBar();
-
-        scene.add.existing(this);
-    }
-
-    drawHero() {
-        this.clear();
-        this.fillStyle(0xFFD700, 1);
-        this.fillTriangle(-20, 20, 20, 20, 0, -20);
-        this.lineStyle(2, 0xFFFFFF, 0.8);
-        this.strokeTriangle(-20, 20, 20, 20, 0, -20);
-    }
-
-    drawHealthBar() {
-        if (this.healthBar) {
-            this.healthBar.destroy();
-        }
-        const barWidth = GAME_CONFIG.TILE_SIZE * 0.8;
-        const barHeight = 15;
-        const healthRatio = this.stats.health / this.stats.maxHealth;
-        const healthColor = healthRatio > 0.6 ? 0x00FF00 : (healthRatio > 0.3 ? 0xFFFF00 : 0xFF0000);
+        this.sprite = scene.add.sprite(0, 0, GAME_CONFIG.HERO_STATS.spriteKey);
+        const scale = (GAME_CONFIG.TILE_SIZE * 0.7) / Math.max(this.sprite.width, this.sprite.height);
+        this.sprite.setScale(scale);
+        this.add(this.sprite);
 
         this.healthBar = this.scene.add.graphics();
+        this.xpBar = this.scene.add.graphics();
+        this.levelText = this.scene.add.text(0, 0, '', { fontSize: '24px', fill: '#FFFFFF', stroke: '#000', strokeThickness: 4 })
+            .setOrigin(0.5);
+
+        this.add([this.healthBar, this.xpBar, this.levelText]);
+
+        this.drawBarsAndText();
+
+        scene.add.existing(this);
+        scene.physics.world.enable(this);
+        this.body.setCircle(this.sprite.width * scale / 2);
+        this.body.setAllowGravity(false);
+        this.body.setImmovable(false);
+        this.body.debugShowBody = false;
+        this.body.setCollideWorldBounds(true);
+    }
+
+    drawBarsAndText() {
+        this.healthBar.clear();
+        this.xpBar.clear();
+
+        const barWidth = this.sprite.width * this.sprite.scaleX * 1.2;
+        const barHeight = 10;
+        const healthBarYOffset = -this.sprite.height * this.sprite.scaleY / 2 - barHeight - 5;
+        const xpBarYOffset = healthBarYOffset - barHeight - 5;
+
+        const healthRatio = this.stats.health / this.stats.maxHealth;
+        const healthColor = healthRatio > 0.6 ? 0x00FF00 : (healthRatio > 0.3 ? 0xFFFF00 : 0xFF0000);
         this.healthBar.fillStyle(0x000000, 0.5);
-        this.healthBar.fillRect(-barWidth / 2, GAME_CONFIG.TILE_SIZE / 2, barWidth, barHeight);
+        this.healthBar.fillRect(-barWidth / 2, healthBarYOffset, barWidth, barHeight);
         this.healthBar.fillStyle(healthColor, 1);
-        this.healthBar.fillRect(-barWidth / 2, GAME_CONFIG.TILE_SIZE / 2, barWidth * healthRatio, barHeight);
-        this.add(this.healthBar);
+        this.healthBar.fillRect(-barWidth / 2, healthBarYOffset, barWidth * healthRatio, barHeight);
+
+        const xpRatio = this.stats.level < this.stats.xpToLevelArray.length ? this.stats.xp / this.stats.xpToNextLevel : 1;
+        this.xpBar.fillStyle(0x000000, 0.5);
+        this.xpBar.fillRect(-barWidth / 2, xpBarYOffset, barWidth, barHeight);
+        this.xpBar.fillStyle(0x87CEEB, 1);
+        this.xpBar.fillRect(-barWidth / 2, xpBarYOffset, barWidth * xpRatio, barHeight);
+
+        this.levelText.setText(`Lv: ${this.stats.level}`);
+        this.levelText.setPosition(0, xpBarYOffset - 20);
     }
 
     update(time, delta, enemies) {
         const distance = Phaser.Math.Distance.Between(this.x, this.y, this.movementTarget.x, this.movementTarget.y);
         if (distance > 5) {
             const angle = Phaser.Math.Angle.Between(this.x, this.y, this.movementTarget.x, this.movementTarget.y);
-            this.x += Math.cos(angle) * this.stats.speed * (delta / 1000);
-            this.y += Math.sin(angle) * this.stats.speed * (delta / 1000);
-            this.setPosition(this.x, this.y);
-            this.healthBar.setPosition(this.x, this.y);
+            this.body.setVelocityX(Math.cos(angle) * this.stats.speed);
+            this.body.setVelocityY(Math.sin(angle) * this.stats.speed);
+        } else {
+            this.body.setVelocity(0, 0);
         }
 
         if (!this.targetEnemy || !this.targetEnemy.active || Phaser.Math.Distance.Between(this.x, this.y, this.targetEnemy.x, this.targetEnemy.y) > this.stats.range) {
@@ -75,6 +90,7 @@ class Hero extends Phaser.GameObjects.Graphics {
             this.attack(this.targetEnemy);
             this.nextAttack = time + this.attackRate;
         }
+        this.drawBarsAndText();
     }
 
     findTarget(enemies) {
@@ -104,12 +120,12 @@ class Hero extends Phaser.GameObjects.Graphics {
             onComplete: () => attackLine.destroy()
         });
         this.scene.tweens.add({
-            targets: this,
-            scale: 1.1,
+            targets: this.sprite,
+            scaleX: { from: this.sprite.scaleX, to: this.sprite.scaleX * 1.1 },
+            scaleY: { from: this.sprite.scaleY, to: this.sprite.scaleY * 1.1 },
             duration: 50,
             yoyo: true,
-            ease: 'Sine.easeInOut',
-            onComplete: () => this.setScale(1)
+            ease: 'Sine.easeInOut'
         });
 
         enemy.takeDamage(this.stats.attack, 'hero');
@@ -134,7 +150,7 @@ class Hero extends Phaser.GameObjects.Graphics {
         this.stats.speed += 10;
         this.attackRate = Math.max(200, this.attackRate - 50);
 
-        this.drawHealthBar();
+        this.drawBarsAndText();
         if (this.stats.level <= this.stats.xpToLevelArray.length) {
             this.stats.xpToNextLevel = this.stats.xpToLevelArray[this.stats.level - 1];
         } else {
@@ -159,7 +175,7 @@ class Hero extends Phaser.GameObjects.Graphics {
 
     takeDamage(amount, damageType = 'normal') {
         this.stats.health -= amount;
-        this.drawHealthBar();
+        this.drawBarsAndText();
         if (this.stats.health <= 0) {
             this.die();
         }
@@ -178,6 +194,12 @@ class Hero extends Phaser.GameObjects.Graphics {
     destroy(fromScene) {
         if (this.healthBar) {
             this.healthBar.destroy();
+        }
+        if (this.xpBar) {
+            this.xpBar.destroy();
+        }
+        if (this.levelText) {
+            this.levelText.destroy();
         }
         super.destroy(fromScene);
     }
