@@ -1,153 +1,146 @@
+// src/data/GameStore.js
+
 class GameStore {
     constructor() {
         this.state = this.loadState();
-        this.applyUpgrades();
+        console.log('GameStore initialized. Current state:', this.state);
     }
 
-    // Loads state from localStorage or initializes with defaults
-    loadState() {
-        try {
-            const serializedState = localStorage.getItem('wowtd_game_state');
-            if (serializedState === null) {
-                console.log("No saved state found. Initializing with defaults.");
-                return { ...GAME_CONFIG.DEFAULT_GAME_STATE };
+    _defaultState() {
+        return {
+            gold: GAME_CONFIG.STARTING_GOLD,
+            score: 0,
+            isAdFree: false,
+            hasDoubleGoldPass: false,
+            permanentUpgrades: { // Stores level of purchased upgrades
+                'starting_gold_bonus': 0,
+                'hero_starting_hp': 0,
+                'all_towers_atk_bonus': 0,
+                'wave_gold_bonus': 0
             }
-            console.log("Loading game state from localStorage.");
-            const loadedState = JSON.parse(serializedState);
-
-            // Merge with defaults to ensure new config properties are added
-            return {
-                ...GAME_CONFIG.DEFAULT_GAME_STATE,
-                ...loadedState,
-                // Ensure permanentUpgrades is an object
-                permanentUpgrades: typeof loadedState.permanentUpgrades === 'object' && loadedState.permanentUpgrades !== null
-                    ? loadedState.permanentUpgrades
-                    : {}
-            };
-
-        } catch (error) {
-            console.error("Error loading game state:", error);
-            // Fallback to default state if loading fails
-            return { ...GAME_CONFIG.DEFAULT_GAME_STATE };
-        }
+        };
     }
 
-    // Saves current state to localStorage
     saveState() {
         try {
-            const serializedState = JSON.stringify(this.state);
-            localStorage.setItem('wowtd_game_state', serializedState);
-            console.log("Game state saved successfully.");
-        } catch (error) {
-            console.error("Error saving game state:", error);
+            localStorage.setItem('td_wow_game_state', JSON.stringify(this.state));
+            console.log('Game state saved:', this.state);
+        } catch (e) {
+            console.error('Error saving game state to localStorage:', e);
         }
     }
 
-    // Generic getter for state properties
+    loadState() {
+        try {
+            const savedState = localStorage.getItem('td_wow_game_state');
+            if (savedState) {
+                const parsedState = JSON.parse(savedState);
+                const mergedState = { ...this._defaultState(), ...parsedState };
+                if (typeof mergedState.permanentUpgrades !== 'object' || mergedState.permanentUpgrades === null) {
+                    mergedState.permanentUpgrades = {};
+                }
+                return mergedState;
+            }
+        } catch (e) {
+            console.error('Error loading game state from localStorage:', e);
+        }
+        console.log('No saved state found or error, initializing default state.');
+        return this._defaultState();
+    }
+
     get(key) {
-        if (key in this.state) {
-            return this.state[key];
-        }
-        console.warn(`Attempted to get non-existent state key: ${key}`);
-        return undefined;
+        return this.state[key];
     }
 
-    // Generic setter for state properties
     set(key, value) {
-        if (key in this.state) {
-            this.state[key] = value;
-            this.saveState();
-            console.log(`State key '${key}' updated to:`, value);
-            return true;
-        }
-        console.warn(`Attempted to set non-existent state key: ${key}`);
-        return false;
+        this.state[key] = value;
+        this.saveState();
     }
 
-    // Increment/decrement gold, applies 'hasDoubleGoldPass' hook
     addGold(amount) {
-        let finalAmount = amount;
-        if (this.state.hasDoubleGoldPass) {
-            finalAmount *= 2; // Monetization hook: double gold pass
-            console.log("Double Gold Pass active! Gold doubled.");
-        }
-        this.state.gold += finalAmount;
+        this.state.gold += amount;
         this.saveState();
-        console.log(`Added ${finalAmount} gold. Total: ${this.state.gold}`);
-        return finalAmount;
     }
 
     spendGold(amount) {
         if (this.state.gold >= amount) {
             this.state.gold -= amount;
             this.saveState();
-            console.log(`Spent ${amount} gold. Remaining: ${this.state.gold}`);
             return true;
         }
-        console.warn(`Not enough gold to spend ${amount}. Current: ${this.state.gold}`);
         return false;
     }
 
-    // Permanent upgrades management
+    hasPremiumFlag(flagName) {
+        return this.state[flagName] || false;
+    }
+
     getUpgradeLevel(upgradeId) {
         return this.state.permanentUpgrades[upgradeId] || 0;
     }
 
-    // Applies all purchased permanent upgrades to a temporary 'activeUpgrades' object
-    // This should be called once at game start or after an upgrade purchase
-    applyUpgrades() {
-        this.activeUpgrades = {};
-        this.activeUpgrades.starting_gold = 0;
-        this.activeUpgrades.hero_starting_hp = 0;
-        this.activeUpgrades.global_tower_atk_multiplier = 1; // Base multiplier
-        this.activeUpgrades.gold_per_kill_flat_bonus = 0;
-
-        GAME_CONFIG.PERMANENT_UPGRADES.forEach(upgradeConfig => {
-            const level = this.getUpgradeLevel(upgradeConfig.id);
-            if (level > 0) {
-                const effects = upgradeConfig.effect(level);
-                for (const key in effects) {
-                    if (key in this.activeUpgrades) {
-                        // Sum flat bonuses, multiply multipliers
-                        if (key.includes('_multiplier')) {
-                            this.activeUpgrades[key] *= effects[key];
-                        } else {
-                            this.activeUpgrades[key] += effects[key];
-                        }
-                    } else {
-                        this.activeUpgrades[key] = effects[key];
-                    }
-                }
-            }
-        });
-        console.log("Applied permanent upgrades:", this.activeUpgrades);
+    getUpgradeEffectValue(upgradeId) {
+        const level = this.getUpgradeLevel(upgradeId);
+        const upgradeConfig = SHOP_CONFIG.PERMANENT_UPGRADES[upgradeId];
+        if (upgradeConfig && upgradeConfig.effect) {
+            return upgradeConfig.effect(level);
+        }
+        return 0;
     }
 
-    // Purchases an upgrade, updates state and applies effects
-    purchaseUpgrade(upgradeId) {
-        const upgradeConfig = GAME_CONFIG.PERMANENT_UPGRADES.find(u => u.id === upgradeId);
-        if (!upgradeConfig) {
-            console.error(`Upgrade ${upgradeId} not found.`);
-            return false;
-        }
+    applyUpgrade(upgradeId) {
+        if (this.state.permanentUpgrades.hasOwnProperty(upgradeId)) {
+            const upgradeConfig = SHOP_CONFIG.PERMANENT_UPGRADES[upgradeId];
+            if (!upgradeConfig) {
+                console.warn('Attempted to apply unknown upgrade:', upgradeId);
+                return false;
+            }
 
-        const currentLevel = this.getUpgradeLevel(upgradeId);
-        if (currentLevel >= upgradeConfig.levels) {
-            console.log(`${upgradeId} is already at max level.`);
-            return false;
-        }
+            const currentLevel = this.getUpgradeLevel(upgradeId);
+            if (currentLevel >= upgradeConfig.maxLevel) {
+                console.log(`Upgrade '${upgradeId}' is already at max level (${upgradeConfig.maxLevel}).`);
+                return false;
+            }
 
-        const cost = upgradeConfig.baseCost * (currentLevel + 1); // Simple linear cost increase
-        if (this.spendGold(cost)) {
-            this.state.permanentUpgrades[upgradeId] = currentLevel + 1;
-            this.saveState();
-            this.applyUpgrades(); // Reapply all upgrades after purchase
-            console.log(`Purchased ${upgradeId} level ${currentLevel + 1}.`);
-            return true;
+            const cost = upgradeConfig.baseCost * Math.pow(upgradeConfig.costMultiplier, currentLevel);
+
+            if (this.spendGold(Math.round(cost))) {
+                this.state.permanentUpgrades[upgradeId]++;
+                this.saveState();
+                console.log(`Upgrade '${upgradeId}' to level ${this.state.permanentUpgrades[upgradeId]} purchased.`);
+                return true;
+            } else {
+                console.log('Not enough gold for upgrade:', upgradeId);
+                return false;
+            }
         }
+        console.warn('Attempted to apply non-existent permanent upgrade:', upgradeId);
         return false;
+    }
+
+    calculateGoldReward(baseReward) {
+        let finalReward = baseReward;
+        if (this.hasPremiumFlag('hasDoubleGoldPass')) {
+            finalReward *= 2;
+            console.log('Double Gold Pass active! Reward doubled.');
+        }
+        const waveGoldBonusLevel = this.getUpgradeLevel('wave_gold_bonus');
+        if (waveGoldBonusLevel > 0) {
+            const bonusPercentage = SHOP_CONFIG.PERMANENT_UPGRADES['wave_gold_bonus'].effect(waveGoldBonusLevel);
+            finalReward *= (1 + bonusPercentage);
+            console.log(`Wave Gold Bonus active! (+ ${(bonusPercentage*100).toFixed(0)}%) `);
+        }
+
+        return Math.round(finalReward);
+    }
+
+    resetSessionState() {
+        const defaultState = this._defaultState();
+        this.state.gold = defaultState.gold;
+        this.state.score = defaultState.score;
+        this.saveState();
+        console.log("Game session state reset. Permanent upgrades and premium flags retained.");
     }
 }
 
-// Global instance of GameStore
 const gameStore = new GameStore();
