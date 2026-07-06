@@ -1,119 +1,76 @@
+// src/scenes/MainScene.js
+
 class MainScene extends Phaser.Scene {
     constructor() {
         super({ key: 'MainScene' });
-        this.grid = [];
-        this.path = null;
-        this.enemies = null; // Phaser Group for enemies
-        this.towers = null; // Phaser Group for towers
-        this.hero = null;
-        this.ui = null;
-        this.waveNumber = 0;
-        this.lives = GAME_CONFIG.DEFAULT_GAME_STATE.lives;
+        this.gameStore = gameStore;
+        this.lives = GAME_CONFIG.STARTING_LIVES;
+        this.currentWaveIndex = 0;
+        this.enemiesInWave = 0;
+        this.enemiesSpawned = 0;
+        this.waveActive = false;
+        this.nextWaveTimer = null;
+        this.tileGrid = [];
         this.isGameOver = false;
+        this.currentPlacingTower = null;
+        this.enemyPathGraphics = null;
     }
 
     preload() {
-        // --- Placeholder Graphics Loading ---
-        // For Towers: generate textures from graphics
-        for (const raceKey in GAME_CONFIG.RACES) {
-            const config = GAME_CONFIG.RACES[raceKey];
-            const radius = GAME_CONFIG.TILE_SIZE / 3;
-            const graphics = this.add.graphics();
-            graphics.fillStyle(config.color, 1);
-            graphics.fillCircle(0, 0, radius);
-            graphics.generateTexture(config.assetKey, radius * 2, radius * 2);
-            graphics.destroy();
-        }
-
-        // For Enemies: textures generated in Enemy class constructor
-        // For Hero: texture generated in Hero class constructor (using triangle in current example)
-
-        // Placeholder for a simple particle, can be replaced by a star sprite, etc.
-        const starGraphics = this.add.graphics({ fillStyle: { color: 0xffd700 } });
-        starGraphics.fillPoint(0, 0, 10);
-        starGraphics.generateTexture('star', 10, 10);
-        starGraphics.destroy();
+        const graphics = this.make.graphics({ x: 0, y: 0, add: false });
+        graphics.fillStyle(0xFFFFFF, 1);
+        graphics.fillCircle(0, 0, 8);
+        graphics.generateTexture('whiteCircleParticle', 16, 16);
+        graphics.destroy();
     }
 
     create() {
-        console.log("MainScene created.");
+        console.log('MainScene created.');
 
-        // Set up mobile-responsive scaling
-        this.scale.stopListeners(); // Stop Phaser from managing scale by default
-        this.scale.resize(GAME_CONFIG.GAME_WIDTH, GAME_CONFIG.GAME_HEIGHT);
-        this.scale.setZoom(1);
-        this.scale.setGameSize(GAME_CONFIG.GAME_WIDTH, GAME_CONFIG.GAME_HEIGHT);
-        this.scale.refresh();
+        this.lives = GAME_CONFIG.STARTING_LIVES;
+        this.currentWaveIndex = 0;
+        this.isGameOver = false;
 
-        // Calculate aspect ratios
-        const gameRatio = GAME_CONFIG.GAME_WIDTH / GAME_CONFIG.GAME_HEIGHT;
-        const windowRatio = window.innerWidth / window.innerHeight;
+        const startingGoldBonus = this.gameStore.getUpgradeEffectValue('starting_gold_bonus');
+        this.gameStore.set('gold', GAME_CONFIG.STARTING_GOLD + startingGoldBonus);
 
-        let width = GAME_CONFIG.GAME_WIDTH;
-        let height = GAME_CONFIG.GAME_HEIGHT;
+        this.add.rectangle(0, 0, GAME_CONFIG.GAME_WIDTH, GAME_CONFIG.GAME_HEIGHT, 0x1A1A1A)
+            .setOrigin(0);
 
-        if (windowRatio < gameRatio) {
-            // Window is narrower than game, scale by width
-            width = window.innerWidth;
-            height = width / gameRatio;
-        } else {
-            // Window is wider than game, scale by height
-            height = window.innerHeight;
-            width = height * gameRatio;
-        }
-
-        this.scale.setParentSize(width, height);
-        this.scale.scaleMode = Phaser.Scale.FIT;
-        this.scale.autoCenter = Phaser.Scale.CENTER_BOTH;
-        this.scale.pageAlignHorizontally = true;
-        this.scale.pageAlignVertically = true;
-        this.scale.refresh();
-        // --- End Scaling Setup ---
-
-        // Initialize groups
-        this.enemies = this.add.group();
-        this.towers = this.add.group();
-
-        // Initialize UI
-        this.ui = new UI(this);
-        this.lives = gameStore.get('lives');
-        this.ui.updateLivesDisplay(this.lives);
-
-        // Placeholder Grid and Path Drawing
         this.drawGrid();
-        this.path = this.createPath();
-        this.drawPath(this.path);
 
-        // Initialize Hero
-        this.hero = new Hero(this, GAME_CONFIG.HERO_CONFIG);
+        this.towers = this.add.group();
+        this.enemies = this.add.group();
+        this.projectiles = this.add.group();
 
-        // Event listeners
-        this.events.on('enemyLeaked', this.handleEnemyLeaked, this);
-        this.events.on('enemyKilled', this.handleEnemyKilled, this);
-        this.events.on('heroDied', this.handleGameOver, this);
+        const heroInitialHP = GAME_CONFIG.HERO_STATS.initialHealth + this.gameStore.getUpgradeEffectValue('hero_starting_hp');
+        this.hero = new Hero(this, GAME_CONFIG.GAME_WIDTH / 2, GAME_CONFIG.GAME_HEIGHT - 200, {
+            ...GAME_CONFIG.HERO_STATS,
+            initialHealth: heroInitialHP
+        });
+        this.add.existing(this.hero);
 
-        // Initial tower placement (example)
-        this.addTower(GAME_CONFIG.TILE_SIZE * 2.5, GAME_CONFIG.TILE_SIZE * 2.5, GAME_CONFIG.RACES.HUMAN);
-        this.addTower(GAME_CONFIG.TILE_SIZE * 7.5, GAME_CONFIG.TILE_SIZE * 4.5, GAME_CONFIG.RACES.ORC);
+        this.ui = new UI(this, this.gameStore);
+        this.shopUI = new ShopUI(this, this.gameStore);
+        this.add.existing(this.shopUI);
 
-        // Start first wave
+        this.ui.updateGold(this.gameStore.get('gold'));
+        this.ui.updateLives(this.lives);
+        this.ui.updateWave(this.currentWaveIndex);
+        this.ui.updateMonetizationFlags();
+
+        this.enemyPath = this.createEnemyPath();
+        this.drawPath(this.enemyPath);
+
         this.time.delayedCall(2000, this.startNextWave, [], this);
 
-        // Physics overlap for towers and enemies (for range detection)
-        this.physics.add.overlap(this.towers, this.enemies);
-        // Physics overlap for hero and enemies (for hero attacking)
-        this.physics.add.overlap(this.hero, this.enemies);
+        this.input.on('pointerdown', this.handleInput, this);
+        this.input.on('pointermove', this.handleInput, this);
 
-        // For debugging: Simulate purchase and check flags
-        console.log("GameStore: isAdFree =", gameStore.get('isAdFree'));
-        console.log("GameStore: hasDoubleGoldPass =", gameStore.get('hasDoubleGoldPass'));
-        // gameStore.set('hasDoubleGoldPass', true); // Uncomment to test double gold pass
-        // gameStore.set('isAdFree', true); // Uncomment to test ad-free
-        console.log("Active upgrades after game start:", gameStore.activeUpgrades);
-
-        // Example: Purchase starting gold upgrade
-        // gameStore.purchaseUpgrade('starting_gold_bonus');
-        // this.ui.updateGoldDisplay();
+        this.events.on('openShop', this.shopUI.show, this.shopUI);
+        this.events.on('startPlacingTower', this.startPlacingTower, this);
+        this.events.on('enemyDeath', this.handleEnemyDeath, this);
+        this.events.on('heroDied', this.gameOver, this);
     }
 
     update(time, delta) {
@@ -121,121 +78,280 @@ class MainScene extends Phaser.Scene {
             return;
         }
 
-        // Update all active game objects
-        this.enemies.getChildren().forEach(enemy => enemy.update(time, delta));
-        this.towers.getChildren().forEach(tower => tower.update(time, delta));
-        this.hero.update(time, delta);
+        this.hero.update(time, delta, this.enemies.getChildren());
+        this.towers.getChildren().forEach(tower => tower.update(time, delta, this.enemies.getChildren()));
+        this.enemies.getChildren().forEach(enemy => {
+            enemy.update(time, delta);
+            if (enemy.isAtEndOfPath()) {
+                enemy.destroy();
+                this.lives--;
+                this.ui.updateLives(this.lives);
+                if (this.lives <= 0) {
+                    this.gameOver();
+                }
+            }
+        });
+
+        if (this.waveActive && this.enemiesInWave === 0 && this.enemies.countActive(true) === 0) {
+            console.log('Wave complete!');
+            this.waveActive = false;
+            const waveData = GAME_CONFIG.WAVES[this.currentWaveIndex - 1];
+            const baseWaveReward = GAME_CONFIG.BASE_GOLD_REWARD * this.currentWaveIndex;
+            const finalWaveReward = this.gameStore.calculateGoldReward(baseWaveReward * (waveData ? waveData.waveRewardMultiplier : 1));
+            this.gameStore.addGold(finalWaveReward);
+            this.ui.updateGold(this.gameStore.get('gold'));
+            this.showTemporaryMessage(`+${finalWaveReward} Gold!`, this.ui.goldText.x + 100, this.ui.goldText.y + 50, '#FFD700');
+
+            this.time.delayedCall(5000, this.startNextWave, [], this);
+        }
     }
 
     drawGrid() {
-        const graphics = this.add.graphics({ lineStyle: { width: 1, color: 0x222222, alpha: 0.5 } });
-        const numCols = Math.floor(GAME_CONFIG.GAME_WIDTH / GAME_CONFIG.TILE_SIZE);
-        const numRows = Math.floor(GAME_CONFIG.GAME_HEIGHT / GAME_CONFIG.TILE_SIZE);
-
-        for (let i = 0; i < numCols; i++) {
-            graphics.strokeLine(i * GAME_CONFIG.TILE_SIZE, 0, i * GAME_CONFIG.TILE_SIZE, GAME_CONFIG.GAME_HEIGHT);
-        }
-        for (let i = 0; i < numRows; i++) {
-            graphics.strokeLine(0, i * GAME_CONFIG.TILE_SIZE, GAME_CONFIG.GAME_WIDTH, i * GAME_CONFIG.TILE_SIZE);
+        const graphics = this.add.graphics({ lineStyle: { width: 2, color: 0x004400, alpha: 0.5 } });
+        for (let y = 0; y < GAME_CONFIG.GRID_ROWS; y++) {
+            this.tileGrid[y] = [];
+            for (let x = 0; x < GAME_CONFIG.GRID_COLS; x++) {
+                const rect = new Phaser.Geom.Rectangle(x * GAME_CONFIG.TILE_SIZE, y * GAME_CONFIG.TILE_SIZE, GAME_CONFIG.TILE_SIZE, GAME_CONFIG.TILE_SIZE);
+                graphics.strokeRectShape(rect);
+                this.tileGrid[y][x] = { x, y, occupied: false, type: 'empty' };
+            }
         }
     }
 
-    createPath() {
-        // Placeholder path: a simple S-curve or zigzag
-        const path = this.add.path(GAME_CONFIG.TILE_SIZE * 0.5, GAME_CONFIG.TILE_SIZE * 0.5); // Start top-left
-        path.lineTo(GAME_CONFIG.TILE_SIZE * 0.5, GAME_CONFIG.TILE_SIZE * 7.5);
-        path.lineTo(GAME_CONFIG.TILE_SIZE * 9.5, GAME_CONFIG.TILE_SIZE * 7.5);
-        path.lineTo(GAME_CONFIG.TILE_SIZE * 9.5, GAME_CONFIG.TILE_SIZE * 15.5); // End near bottom-right
+    createEnemyPath() {
+        const path = this.add.path(GAME_CONFIG.GAME_WIDTH / 2, -50);
+        path.lineTo(GAME_CONFIG.GAME_WIDTH / 2, GAME_CONFIG.GAME_HEIGHT * 0.2);
+        path.quadraticBezierCurveTo(GAME_CONFIG.GAME_WIDTH * 0.8, GAME_CONFIG.GAME_HEIGHT * 0.3, GAME_CONFIG.GAME_WIDTH * 0.8, GAME_CONFIG.GAME_HEIGHT * 0.5);
+        path.quadraticBezierCurveTo(GAME_CONFIG.GAME_WIDTH * 0.2, GAME_CONFIG.GAME_HEIGHT * 0.7, GAME_CONFIG.GAME_WIDTH * 0.2, GAME_CONFIG.GAME_HEIGHT * 0.9);
+        path.lineTo(GAME_CONFIG.GAME_WIDTH / 2, GAME_CONFIG.GAME_HEIGHT + 50);
         return path;
     }
 
     drawPath(path) {
-        const graphics = this.add.graphics({ lineStyle: { width: 10, color: 0x888888, alpha: 0.7 } });
-        path.draw(graphics);
-    }
-
-    addTower(x, y, raceConfig) {
-        const tower = new Tower(this, x, y, raceConfig);
-        this.towers.add(tower);
-        console.log(`Placed a ${tower.towerType} at (${x}, ${y})`);
-    }
-
-    spawnEnemy(enemyTypeConfig) {
-        const enemy = new Enemy(this, this.path, enemyTypeConfig);
-        this.enemies.add(enemy);
-        console.log(`Spawned a ${enemy.enemyType}`);
+        if (this.enemyPathGraphics) {
+            this.enemyPathGraphics.destroy();
+        }
+        this.enemyPathGraphics = this.add.graphics();
+        this.enemyPathGraphics.lineStyle(20, 0x555555, 0.7);
+        path.draw(this.enemyPathGraphics, 32);
     }
 
     startNextWave() {
         if (this.isGameOver) return;
 
-        this.waveNumber++;
-        this.ui.updateWaveDisplay(this.waveNumber);
-        console.log(`Starting Wave ${this.waveNumber}`);
+        this.currentWaveIndex++;
+        const waveData = GAME_CONFIG.WAVES[this.currentWaveIndex - 1];
 
-        // Example wave composition
-        let totalEnemies = 5 + (this.waveNumber * 2);
-        let spawnedCount = 0;
+        if (!waveData) {
+            console.log('All defined waves completed! Entering endless mode.');
+            this.generateEndlessWave();
+            return;
+        }
 
-        const spawnInterval = this.time.addEvent({
-            delay: 750, // Spawn an enemy every 0.75 seconds
-            callback: () => {
-                const enemyType = spawnedCount % 3 === 0 ? GAME_CONFIG.ENEMY_TYPES.GHOUL_RUSHER : GAME_CONFIG.ENEMY_TYPES.MURLOC_SCOUT;
-                this.spawnEnemy(enemyType);
-                spawnedCount++;
-                if (spawnedCount >= totalEnemies) {
-                    spawnInterval.destroy();
-                    // Wait for all enemies to be defeated or leak
-                    this.time.delayedCall(5000, this.checkWaveCompletion, [], this);
-                }
-            },
-            repeat: totalEnemies - 1
+        console.log(`Starting Wave ${waveData.waveNumber}`);
+        this.ui.updateWave(this.currentWaveIndex);
+        this.waveActive = true;
+        this.enemiesSpawned = 0;
+        this.enemiesInWave = waveData.enemies.reduce((sum, config) => sum + config.count, 0);
+
+        let delay = 0;
+        waveData.enemies.forEach(enemyTypeConfig => {
+            for (let i = 0; i < enemyTypeConfig.count; i++) {
+                this.time.delayedCall(delay, this.spawnEnemy, [enemyTypeConfig.type], this);
+                delay += enemyTypeConfig.delay;
+            }
         });
     }
 
-    checkWaveCompletion() {
-        if (this.enemies.getLength() === 0 && !this.isGameOver) {
-            console.log(`Wave ${this.waveNumber} completed!`);
-            // Reward gold for wave completion (applied BEFORE double gold hook)
-            let waveReward = 100 + (this.waveNumber * 20);
-            gameStore.addGold(waveReward); // GameStore handles the double gold pass hook
-            this.ui.updateGoldDisplay();
+    generateEndlessWave() {
+        this.currentWaveIndex++;
+        this.ui.updateWave(this.currentWaveIndex);
+        console.log(`Starting Endless Wave ${this.currentWaveIndex}`);
+        this.waveActive = true;
+        this.enemiesSpawned = 0;
 
-            this.time.delayedCall(5000, this.startNextWave, [], this); // Start next wave after delay
-        } else if (!this.isGameOver) {
-            this.time.delayedCall(3000, this.checkWaveCompletion, [], this); // Recheck if enemies are still alive
+        const baseEnemyCount = 10;
+        const additionalEnemiesPerWave = 3;
+        const totalEnemies = baseEnemyCount + (this.currentWaveIndex * additionalEnemiesPerWave);
+        this.enemiesInWave = totalEnemies;
+
+        let delay = 0;
+        for (let i = 0; i < totalEnemies; i++) {
+            const enemyType = (i % 4 === 0 && this.currentWaveIndex > 5) ? 'abomination_tank' : ((i % 2 === 0) ? 'ghoul_rusher' : 'murloc_scout');
+            this.time.delayedCall(delay, this.spawnEnemy, [enemyType], this);
+            delay += 800 - Math.min(600, this.currentWaveIndex * 15);
         }
     }
 
-    handleEnemyLeaked() {
-        this.lives--;
-        this.ui.updateLivesDisplay(this.lives);
-        console.log(`Enemy leaked! Lives remaining: ${this.lives}`);
-        if (this.lives <= 0) {
-            this.handleGameOver();
+    spawnEnemy(enemyTypeKey) {
+        const enemyConfig = GAME_CONFIG.ENEMIES[enemyTypeKey.toUpperCase()];
+        if (!enemyConfig) {
+            console.error('Unknown enemy type:', enemyTypeKey);
+            return;
+        }
+        const enemy = new Enemy(this, this.enemyPath, enemyConfig);
+        this.enemies.add(enemy);
+        this.add.existing(enemy);
+        enemy.startFollowingPath();
+        this.enemiesSpawned++;
+    }
+
+    handleEnemyDeath(enemy, goldAmount, xpAmount) {
+        console.log(`Enemy died, adding ${goldAmount} gold and ${xpAmount} XP.`);
+        this.gameStore.addGold(goldAmount);
+        this.ui.updateGold(this.gameStore.get('gold'));
+        this.showTemporaryMessage(`+${goldAmount} Gold`, enemy.x, enemy.y - 40, '#FFD700');
+        this.hero.gainXP(xpAmount);
+        this.enemiesInWave--;
+    }
+
+    handleInput(pointer) {
+        if (this.shopUI.visible) {
+            return;
+        }
+
+        if (this.currentPlacingTower) {
+            this.updatePlacingTowerPosition(pointer);
+        } else {
+            if (pointer.isDown) {
+                this.hero.moveTo(pointer.x, pointer.y);
+            }
         }
     }
 
-    handleEnemyKilled(goldValue, xpValue) {
-        let finalGold = goldValue + gameStore.activeUpgrades.gold_per_kill_flat_bonus;
-        gameStore.addGold(finalGold); // GameStore handles the double gold pass hook
-        this.ui.updateGoldDisplay();
-        this.hero.addXP(xpValue);
+    startPlacingTower(raceConfig) {
+        if (this.currentPlacingTower) {
+            this.currentPlacingTower.destroy();
+        }
+
+        const cost = raceConfig.stats.cost;
+        if (this.gameStore.get('gold') < cost) {
+            this.showTemporaryMessage('Not enough gold!', GAME_CONFIG.GAME_WIDTH / 2, GAME_CONFIG.GAME_HEIGHT / 2, '#FF0000');
+            return;
+        }
+
+        this.currentPlacingTower = new Tower(this, 0, 0, raceConfig, true);
+        this.currentPlacingTower.setAlpha(0.5);
+        this.currentPlacingTower.setDepth(100);
+        this.add.existing(this.currentPlacingTower);
     }
 
-    handleGameOver() {
+    updatePlacingTowerPosition(pointer) {
+        if (this.currentPlacingTower) {
+            const tileX = Math.floor(pointer.x / GAME_CONFIG.TILE_SIZE);
+            const tileY = Math.floor(pointer.y / GAME_CONFIG.TILE_SIZE);
+
+            if (tileX >= 0 && tileX < GAME_CONFIG.GRID_COLS && tileY >= 0 && tileY < GAME_CONFIG.GRID_ROWS) {
+                const snappedX = tileX * GAME_CONFIG.TILE_SIZE + GAME_CONFIG.TILE_SIZE / 2;
+                const snappedY = tileY * GAME_CONFIG.TILE_SIZE + GAME_CONFIG.TILE_SIZE / 2;
+                this.currentPlacingTower.setPosition(snappedX, snappedY);
+
+                const tile = this.tileGrid[tileY][tileX];
+                const isValidPlacement = !tile.occupied && !this.isPathTile(tileX, tileY);
+                this.currentPlacingTower.setTint(isValidPlacement ? 0x00FF00 : 0xFF0000);
+
+                if (!pointer.isDown && pointer.upX !== 0 && pointer.upY !== 0) {
+                    this.placeTower(pointer, this.currentPlacingTower.raceConfig);
+                }
+            }
+        }
+    }
+
+    placeTower(pointer, raceConfig) {
+        if (!this.currentPlacingTower) return;
+
+        const tileX = Math.floor(pointer.x / GAME_CONFIG.TILE_SIZE);
+        const tileY = Math.floor(pointer.y / GAME_CONFIG.TILE_SIZE);
+
+        if (tileX >= 0 && tileX < GAME_CONFIG.GRID_COLS && tileY >= 0 && tileY < GAME_CONFIG.GRID_ROWS) {
+            const tile = this.tileGrid[tileY][tileX];
+            const isValidPlacement = !tile.occupied && !this.isPathTile(tileX, tileY);
+
+            if (isValidPlacement && this.gameStore.spendGold(raceConfig.stats.cost)) {
+                const newTower = new Tower(this, tile.x * GAME_CONFIG.TILE_SIZE + GAME_CONFIG.TILE_SIZE / 2, tile.y * GAME_CONFIG.TILE_SIZE + GAME_CONFIG.TILE_SIZE / 2, raceConfig, false);
+                this.towers.add(newTower);
+                this.add.existing(newTower);
+                tile.occupied = true;
+                tile.type = 'tower';
+                console.log(`Placed ${raceConfig.name} tower at (${tileX}, ${tileY})`);
+                this.currentPlacingTower.destroy();
+                this.currentPlacingTower = null;
+                this.ui.updateGold(this.gameStore.get('gold'));
+                return;
+            } else if (!isValidPlacement) {
+                this.showTemporaryMessage('Cannot build here!', GAME_CONFIG.GAME_WIDTH / 2, GAME_CONFIG.GAME_HEIGHT / 2 + 100, '#FF0000');
+            } else {
+                this.showTemporaryMessage('Not enough gold!', GAME_CONFIG.GAME_WIDTH / 2, GAME_CONFIG.GAME_HEIGHT / 2 + 100, '#FF0000');
+            }
+        }
+        this.currentPlacingTower.destroy();
+        this.currentPlacingTower = null;
+    }
+
+    isPathTile(tileX, tileY) {
+        const pathPoints = this.enemyPath.getSpacedPoints(10);
+        const tileRect = new Phaser.Geom.Rectangle(tileX * GAME_CONFIG.TILE_SIZE, tileY * GAME_CONFIG.TILE_SIZE, GAME_CONFIG.TILE_SIZE, GAME_CONFIG.TILE_SIZE);
+
+        for (const point of pathPoints) {
+            const pathNodeRect = new Phaser.Geom.Rectangle(point.x - GAME_CONFIG.TILE_SIZE / 3, point.y - GAME_CONFIG.TILE_SIZE / 3, GAME_CONFIG.TILE_SIZE * 2 / 3, GAME_CONFIG.TILE_SIZE * 2 / 3);
+            if (Phaser.Geom.Intersects.RectangleToRectangle(tileRect, pathNodeRect)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    showTemporaryMessage(message, x, y, color = '#FFFFFF') {
+        const text = this.add.text(x, y, message, {
+            fontSize: '50px',
+            fill: color,
+            stroke: '#000',
+            strokeThickness: 8
+        }).setOrigin(0.5).setDepth(250);
+
+        this.tweens.add({
+            targets: text,
+            y: y - 100,
+            alpha: 0,
+            duration: 1500,
+            ease: 'Sine.easeOut',
+            onComplete: () => text.destroy()
+        });
+    }
+
+    gameOver() {
         if (this.isGameOver) return;
         this.isGameOver = true;
-        console.log("GAME OVER!");
-        // Display game over screen
+        console.log('Game Over!');
+        this.physics.pause();
+        this.scene.input.off('pointerdown', this.handleInput);
+        this.scene.input.off('pointermove', this.handleInput);
+
         const gameOverText = this.add.text(GAME_CONFIG.GAME_WIDTH / 2, GAME_CONFIG.GAME_HEIGHT / 2, 'GAME OVER', {
             fontSize: '100px',
             fill: '#FF0000',
             stroke: '#000000',
             strokeThickness: 12
-        }).setOrigin(0.5).setDepth(100);
+        }).setOrigin(0.5).setDepth(250);
 
-        this.physics.pause(); // Pause all physics operations
-        // Optionally, reset GameStore or offer restart
+        const restartButton = this.add.text(GAME_CONFIG.GAME_WIDTH / 2, GAME_CONFIG.GAME_HEIGHT / 2 + 150, 'Restart', {
+            fontSize: '60px',
+            fill: '#00FF00',
+            stroke: '#000000',
+            strokeThickness: 8
+        }).setOrigin(0.5).setDepth(250)
+            .setInteractive()
+            .on('pointerdown', () => this.restartGame());
+    }
+
+    restartGame() {
+        console.log('Restarting game...');
+        this.gameStore.resetSessionState();
+        this.time.removeAllEvents();
+        this.enemies.clear(true, true);
+        this.towers.clear(true, true);
+        this.projectiles.clear(true, true);
+
+        this.scene.restart();
     }
 }
