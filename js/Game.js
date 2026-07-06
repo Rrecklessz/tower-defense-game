@@ -1,4 +1,4 @@
-// src/game.js
+// js/game.js
 
 const config = {
     type: Phaser.AUTO,
