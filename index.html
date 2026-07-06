@@ -2,34 +2,33 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>WoW TD Mobile</title>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            overflow: hidden;
-            background-color: #1a1a1a;
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #333; }
+        canvas { display: block; margin: 0 auto; }
+        /* Add a container for Phaser to attach to */
+        #game-container {
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 100vh;
-        }
-        canvas {
-            display: block;
-            margin: 0 auto;
+            width: 100vw;
+            height: 100vh;
         }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+    <script src="//cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
 </head>
 <body>
-    <script src="js/config.js"></script>
-    <script src="js/gameStore.js"></script>
-    <script src="js/ui.js"></script>
-    <script src="js/enemy.js"></script>
-    <script src="js/tower.js"></script>
-    <script src="js/hero.js"></script>
-    <script src="js/mainScene.js"></script>
-    <script src="js/game.js"></script>
+    <div id="game-container"></div>
+    <script src="src/data/GameStore.js"></script>
+    <script src="src/config/gameConfig.js"></script>
+    <script src="src/config/shopConfig.js"></script>
+    <script src="src/objects/Tower.js"></script>
+    <script src="src/objects/Enemy.js"></script>
+    <script src="src/objects/Hero.js"></script>
+    <script src="src/objects/UI.js"></script>
+    <script src="src/objects/ShopUI.js"></script> <!-- Ensure ShopUI is loaded -->
+    <script src="src/scenes/MainScene.js"></script>
+    <script src="src/game.js"></script>
 </body>
 </html>
