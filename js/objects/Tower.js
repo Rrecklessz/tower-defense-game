@@ -1,14 +1,11 @@
-// src/objects/Tower.js
+// js/objects/Tower.js
 
-class Tower extends Phaser.GameObjects.Graphics {
+class Tower extends Phaser.GameObjects.Container {
     constructor(scene, x, y, raceConfig, isGhost = false) {
-        super(scene);
+        super(scene, x, y);
         this.scene = scene;
         this.raceConfig = raceConfig;
         this.isGhost = isGhost;
-
-        this.x = x;
-        this.y = y;
 
         const atkBonusLevel = this.scene.gameStore.getUpgradeLevel('all_towers_atk_bonus');
         const atkBonusValue = SHOP_CONFIG.PERMANENT_UPGRADES['all_towers_atk_bonus'].effect(atkBonusLevel);
@@ -25,37 +22,25 @@ class Tower extends Phaser.GameObjects.Graphics {
 
         this.nextFire = 0;
 
-        this.drawTower();
+        this.sprite = scene.add.sprite(0, 0, raceConfig.spriteKey);
+        const baseSpriteSize = GAME_CONFIG.TILE_SIZE * 0.8;
+        const scale = baseSpriteSize / Math.max(this.sprite.width, this.sprite.height);
+        this.sprite.setScale(scale);
+        this.add(this.sprite);
+
+        scene.physics.world.enable(this);
+        this.body.setCircle(this.stats.range);
+        this.body.setAllowGravity(false);
+        this.body.setImmovable(true);
+        this.body.debugShowBody = false;
+
         if (!isGhost) {
-            this.rangeIndicator = scene.add.circle(x, y, this.stats.range, 0x00FF00, 0.1)
+            this.rangeIndicator = scene.add.circle(0, 0, this.stats.range, 0x00FF00, 0.1)
                 .setDepth(0);
             this.add(this.rangeIndicator);
+            this.rangeIndicator.setVisible(false);
         }
         scene.add.existing(this);
-    }
-
-    drawTower() {
-        this.clear();
-        this.fillStyle(this.raceConfig.color, 1);
-        this.fillCircle(0, 0, GAME_CONFIG.TILE_SIZE / 3);
-
-        this.lineStyle(2, 0xFFFFFF, 0.8);
-        this.strokeCircle(0, 0, GAME_CONFIG.TILE_SIZE / 3);
-
-        if (this.raceConfig.id === GAME_CONFIG.RACES.HUMAN.id) {
-            this.fillStyle(0xFFFFFF, 0.8);
-            this.fillTriangle(0, -GAME_CONFIG.TILE_SIZE / 3, -GAME_CONFIG.TILE_SIZE / 6, 0, GAME_CONFIG.TILE_SIZE / 6, 0);
-        } else if (this.raceConfig.id === GAME_CONFIG.RACES.ORC.id) {
-            this.fillStyle(0x8B4513, 1);
-            this.fillRect(-GAME_CONFIG.TILE_SIZE / 8, -GAME_CONFIG.TILE_SIZE / 2, GAME_CONFIG.TILE_SIZE / 4, GAME_CONFIG.TILE_SIZE / 2);
-            this.fillStyle(0xFFFFFF, 0.7);
-            this.fillTriangle(-GAME_CONFIG.TILE_SIZE / 8, -GAME_CONFIG.TILE_SIZE / 2, GAME_CONFIG.TILE_SIZE / 8, -GAME_CONFIG.TILE_SIZE / 2, 0, -GAME_CONFIG.TILE_SIZE / 1.5);
-        } else if (this.raceConfig.id === GAME_CONFIG.RACES.UNDEAD.id) {
-            this.fillStyle(0x333333, 1);
-            this.fillEllipse(0, 0, GAME_CONFIG.TILE_SIZE / 2.5, GAME_CONFIG.TILE_SIZE / 1.5);
-            this.fillStyle(0x00FF00, 0.5);
-            this.fillCircle(0, -GAME_CONFIG.TILE_SIZE / 2.5, GAME_CONFIG.TILE_SIZE / 6);
-        }
     }
 
     update(time, delta, enemies) {
@@ -87,10 +72,11 @@ class Tower extends Phaser.GameObjects.Graphics {
 
     fire(target) {
         let projectileColor = 0xFFFFFF;
-        let projectileDuration = 200;
+        let projectileSpeed = 800;
 
         if (target && target.active) {
-            projectileDuration = Phaser.Math.Distance.Between(this.x, this.y, target.x, target.y) / 0.8;
+            const distance = Phaser.Math.Distance.Between(this.x, this.y, target.x, target.y);
+            const projectileDuration = (distance / projectileSpeed) * 1000;
 
             if (this.raceConfig.id === GAME_CONFIG.RACES.HUMAN.id) {
                 projectileColor = 0x8800FF;
@@ -108,12 +94,12 @@ class Tower extends Phaser.GameObjects.Graphics {
                     }
                 });
                 this.scene.tweens.add({
-                    targets: this,
-                    scale: 1.1,
+                    targets: this.sprite,
+                    scaleX: { from: this.sprite.scaleX, to: this.sprite.scaleX * 1.1 },
+                    scaleY: { from: this.sprite.scaleY, to: this.sprite.scaleY * 1.1 },
                     duration: 100,
                     yoyo: true,
-                    ease: 'Sine.easeInOut',
-                    onComplete: () => this.setScale(1)
+                    ease: 'Sine.easeInOut'
                 });
 
             } else if (this.raceConfig.id === GAME_CONFIG.RACES.ORC.id) {
@@ -136,8 +122,8 @@ class Tower extends Phaser.GameObjects.Graphics {
                             });
 
                             this.scene.enemies.getChildren().forEach(enemy => {
-                                const distance = Phaser.Math.Distance.Between(target.x, target.y, enemy.x, enemy.y);
-                                if (distance <= this.stats.splashRadius && enemy.active) {
+                                const distToSplashCenter = Phaser.Math.Distance.Between(target.x, target.y, enemy.x, enemy.y);
+                                if (distToSplashCenter <= this.stats.splashRadius && enemy.active) {
                                     enemy.takeDamage(this.stats.attack, 'nature');
                                 }
                             });
@@ -145,13 +131,13 @@ class Tower extends Phaser.GameObjects.Graphics {
                     }
                 });
                 this.scene.tweens.add({
-                    targets: this,
+                    targets: this.sprite,
                     angle: { from: -5, to: 5 },
                     duration: 80,
                     yoyo: true,
                     repeat: 2,
                     ease: 'Sine.easeInOut',
-                    onComplete: () => this.setAngle(0)
+                    onComplete: () => this.sprite.setAngle(0)
                 });
             } else if (this.raceConfig.id === GAME_CONFIG.RACES.UNDEAD.id) {
                 projectileColor = 0xAA00FF;
@@ -170,12 +156,12 @@ class Tower extends Phaser.GameObjects.Graphics {
                     }
                 });
                 this.scene.tweens.add({
-                    targets: this,
+                    targets: this.sprite,
                     alpha: { from: 1, to: 0.8 },
                     duration: 100,
                     yoyo: true,
                     ease: 'Sine.easeInOut',
-                    onComplete: () => this.setAlpha(1)
+                    onComplete: () => this.sprite.setAlpha(1)
                 });
             }
         }
@@ -188,3 +174,12 @@ class Tower extends Phaser.GameObjects.Graphics {
         super.destroy(fromScene);
     }
 }
+```The elite mobile game engineering swarm is now operating in full autonomous mode. I will proceed immediately, making all necessary assumptions and utilizing tools to complete the task.
+
+**Autonomous Action: Verifying Codebase Synchronization & Planning Next Features**
+
+I will perform a comprehensive fetch and review of your entire GitHub repository. The primary goal is to **confirm that the previous extensive code updates and manual file system corrections (deleting duplicates, moving files to correct subfolders, renaming with proper casing) have been applied and pushed to your repository.**
+
+Once this synchronization is confirmed, I will autonomously identify the next phase of development based on our initial project decomposition and begin generating the necessary code.
+
+**Proceeding with File Retrieval for Verification:**
