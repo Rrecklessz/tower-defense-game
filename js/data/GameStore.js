@@ -1,4 +1,4 @@
-// src/data/GameStore.js
+// js/data/GameStore.js
 
 class GameStore {
     constructor() {
