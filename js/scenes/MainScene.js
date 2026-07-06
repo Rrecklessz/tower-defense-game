@@ -1,4 +1,4 @@
-// src/scenes/MainScene.js
+// js/scenes/MainScene.js
 
 class MainScene extends Phaser.Scene {
     constructor() {
@@ -17,6 +17,18 @@ class MainScene extends Phaser.Scene {
     }
 
     preload() {
+        // Load placeholder image assets
+        this.load.image('human_tower', 'js/assets/human_tower.png');
+        this.load.image('orc_totem', 'js/assets/orc_totem.png');
+        this.load.image('undead_spire', 'js/assets/undead_spire.png');
+        this.load.image('murloc_scout', 'js/assets/murloc_scout.png');
+        this.load.image('ghoul_rusher', 'js/assets/ghoul_rusher.png');
+        this.load.image('abomination_tank', 'js/assets/abomination_tank.png');
+        this.load.image('hero_sprite', 'js/assets/hero_sprite.png');
+
+
+        // Generate generic particle texture (must be done after base image loads if using image,
+        // or can be done directly with graphics as below if not dependent on external image)
         const graphics = this.make.graphics({ x: 0, y: 0, add: false });
         graphics.fillStyle(0xFFFFFF, 1);
         graphics.fillCircle(0, 0, 8);
