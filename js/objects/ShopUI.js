@@ -1,4 +1,4 @@
-// src/objects/ShopUI.js
+// js/objects/ShopUI.js
 
 class ShopUI extends Phaser.GameObjects.Container {
     constructor(scene, gameStore) {
