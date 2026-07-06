@@ -1,127 +1,190 @@
-class Tower extends Phaser.GameObjects.Container {
-    constructor(scene, x, y, towerTypeConfig) {
-        super(scene, x, y);
+// src/objects/Tower.js
+
+class Tower extends Phaser.GameObjects.Graphics {
+    constructor(scene, x, y, raceConfig, isGhost = false) {
+        super(scene);
         this.scene = scene;
-        this.towerType = towerTypeConfig.name;
-        this.stats = { ...towerTypeConfig.stats }; // Copy stats for individual upgrades
-        this.projectileSpeed = towerTypeConfig.stats.projectileSpeed;
-        this.fireRate = towerTypeConfig.stats.fireRate; // ms
-        this.nextFireTime = 0;
-        this.target = null; // Current target
+        this.raceConfig = raceConfig;
+        this.isGhost = isGhost;
 
+        this.x = x;
+        this.y = y;
+
+        const atkBonusLevel = this.scene.gameStore.getUpgradeLevel('all_towers_atk_bonus');
+        const atkBonusValue = SHOP_CONFIG.PERMANENT_UPGRADES['all_towers_atk_bonus'].effect(atkBonusLevel);
+
+        this.stats = {
+            attack: raceConfig.stats.attack + atkBonusValue,
+            range: raceConfig.stats.range,
+            fireRate: raceConfig.stats.fireRate,
+            cost: raceConfig.stats.cost
+        };
+        if (raceConfig.stats.splashRadius) this.stats.splashRadius = raceConfig.stats.splashRadius;
+        if (raceConfig.stats.poisonDuration) this.stats.poisonDuration = raceConfig.stats.poisonDuration;
+        if (raceConfig.stats.poisonTickDamage) this.stats.poisonTickDamage = raceConfig.stats.poisonTickDamage;
+
+        this.nextFire = 0;
+
+        this.drawTower();
+        if (!isGhost) {
+            this.rangeIndicator = scene.add.circle(x, y, this.stats.range, 0x00FF00, 0.1)
+                .setDepth(0);
+            this.add(this.rangeIndicator);
+        }
         scene.add.existing(this);
-        scene.physics.world.enable(this); // Enable physics for range detection (if using circle body)
-        this.body.setCircle(this.stats.range); // Range as a physics body
-        this.body.setAllowGravity(false);
-        this.body.setImmovable(true);
-        this.body.debugShowBody = false; // Hide physics debug body
-
-        // Tower Base (placeholder: colored circle)
-        const baseRadius = GAME_CONFIG.TILE_SIZE / 3;
-        this.base = scene.add.graphics();
-        this.base.fillStyle(0x333333, 1);
-        this.base.fillCircle(0, 0, baseRadius);
-        this.add(this.base);
-
-        // Tower Cannon/Top (placeholder: colored square/circle)
-        const topSize = GAME_CONFIG.TILE_SIZE / 2;
-        this.top = scene.add.graphics();
-        this.top.fillStyle(towerTypeConfig.color, 1);
-        this.top.fillRoundedRect(-topSize / 2, -topSize / 2, topSize, topSize, 8);
-        this.add(this.top);
-
-        // Tower Range Indicator (optional, for debugging or placement preview)
-        this.rangeIndicator = scene.add.graphics({ lineStyle: { width: 2, color: 0x00ff00, alpha: 0.3 } });
-        this.rangeIndicator.strokeCircle(0, 0, this.stats.range);
-        this.add(this.rangeIndicator);
-        this.rangeIndicator.setVisible(false); // Hide by default
-
-        // Placeholder for asset-key sprite, will replace the graphics later
-        // this.sprite = scene.add.sprite(0, 0, towerTypeConfig.assetKey);
-        // this.add(this.sprite);
     }
 
-    update(time, delta) {
-        if (time > this.nextFireTime) {
-            this.acquireTarget();
-            if (this.target) {
-                this.fire(time);
-                this.nextFireTime = time + this.fireRate;
+    drawTower() {
+        this.clear();
+        this.fillStyle(this.raceConfig.color, 1);
+        this.fillCircle(0, 0, GAME_CONFIG.TILE_SIZE / 3);
+
+        this.lineStyle(2, 0xFFFFFF, 0.8);
+        this.strokeCircle(0, 0, GAME_CONFIG.TILE_SIZE / 3);
+
+        if (this.raceConfig.id === GAME_CONFIG.RACES.HUMAN.id) {
+            this.fillStyle(0xFFFFFF, 0.8);
+            this.fillTriangle(0, -GAME_CONFIG.TILE_SIZE / 3, -GAME_CONFIG.TILE_SIZE / 6, 0, GAME_CONFIG.TILE_SIZE / 6, 0);
+        } else if (this.raceConfig.id === GAME_CONFIG.RACES.ORC.id) {
+            this.fillStyle(0x8B4513, 1);
+            this.fillRect(-GAME_CONFIG.TILE_SIZE / 8, -GAME_CONFIG.TILE_SIZE / 2, GAME_CONFIG.TILE_SIZE / 4, GAME_CONFIG.TILE_SIZE / 2);
+            this.fillStyle(0xFFFFFF, 0.7);
+            this.fillTriangle(-GAME_CONFIG.TILE_SIZE / 8, -GAME_CONFIG.TILE_SIZE / 2, GAME_CONFIG.TILE_SIZE / 8, -GAME_CONFIG.TILE_SIZE / 2, 0, -GAME_CONFIG.TILE_SIZE / 1.5);
+        } else if (this.raceConfig.id === GAME_CONFIG.RACES.UNDEAD.id) {
+            this.fillStyle(0x333333, 1);
+            this.fillEllipse(0, 0, GAME_CONFIG.TILE_SIZE / 2.5, GAME_CONFIG.TILE_SIZE / 1.5);
+            this.fillStyle(0x00FF00, 0.5);
+            this.fillCircle(0, -GAME_CONFIG.TILE_SIZE / 2.5, GAME_CONFIG.TILE_SIZE / 6);
+        }
+    }
+
+    update(time, delta, enemies) {
+        if (this.isGhost) return;
+
+        if (time > this.nextFire) {
+            let target = this.findTarget(enemies);
+            if (target) {
+                this.fire(target);
+                this.nextFire = time + this.stats.fireRate;
             }
         }
     }
 
-    acquireTarget() {
-        // Find closest enemy within range
-        const enemies = this.scene.enemies.getChildren(); // Assuming MainScene manages an enemies group
+    findTarget(enemies) {
         let closestEnemy = null;
-        let closestDistance = this.stats.range + 1; // Start slightly outside range
+        let minDistance = this.stats.range + 1;
 
-        for (const enemy of enemies) {
-            if (!enemy.active) continue; // Skip inactive enemies
+        enemies.forEach(enemy => {
+            if (!enemy.active) return;
             const distance = Phaser.Math.Distance.Between(this.x, this.y, enemy.x, enemy.y);
-            if (distance <= this.stats.range && distance < closestDistance) {
-                closestDistance = distance;
+            if (distance <= this.stats.range && distance < minDistance) {
+                minDistance = distance;
                 closestEnemy = enemy;
             }
-        }
-        this.target = closestEnemy;
+        });
+        return closestEnemy;
     }
 
-    fire(time) {
-        if (!this.target || !this.target.active) {
-            this.target = null;
-            return;
-        }
+    fire(target) {
+        let projectileColor = 0xFFFFFF;
+        let projectileDuration = 200;
 
-        // Rotate tower top to face target (placeholder visual)
-        const angle = Phaser.Math.Angle.Between(this.x, this.y, this.target.x, this.target.y);
-        this.top.rotation = angle + Math.PI / 2; // Adjust for graphic's initial orientation
+        if (target && target.active) {
+            projectileDuration = Phaser.Math.Distance.Between(this.x, this.y, target.x, target.y) / 0.8;
 
-        // Projectile (placeholder: glowing particle arc / simple circle)
-        const projectile = this.scene.add.graphics();
-        projectile.fillStyle(0xffff00, 1); // Yellow glowing
-        projectile.fillCircle(0, 0, 10);
-        projectile.setDepth(1); // Above enemies
-        projectile.x = this.x;
-        projectile.y = this.y;
-
-        // Path / Tween the projectile
-        this.scene.tweens.add({
-            targets: projectile,
-            x: this.target.x,
-            y: this.target.y,
-            duration: Phaser.Math.Distance.Between(this.x, this.y, this.target.x, this.target.y) / this.projectileSpeed * 1000,
-            ease: 'Linear',
-            onComplete: () => {
-                if (this.target && this.target.active) {
-                    this.target.takeDamage(this.stats.damage * gameStore.activeUpgrades.global_tower_atk_multiplier);
-                    // Add specific effects based on tower type (e.g., poison, splash)
-                    if (this.towerType === GAME_CONFIG.RACES.UNDEAD.name) {
-                        // Apply poison logic here (e.g., add a status effect to the enemy)
-                    } else if (this.towerType === GAME_CONFIG.RACES.ORC.name) {
-                        // Apply splash damage logic here (e.g., find nearby enemies and damage them)
+            if (this.raceConfig.id === GAME_CONFIG.RACES.HUMAN.id) {
+                projectileColor = 0x8800FF;
+                const projectile = this.scene.add.circle(this.x, this.y, 8, projectileColor).setDepth(2);
+                this.scene.tweens.add({
+                    targets: projectile,
+                    x: target.x,
+                    y: target.y,
+                    duration: projectileDuration,
+                    onComplete: (tween, targets) => {
+                        targets[0].destroy();
+                        if (target && target.active) {
+                            target.takeDamage(this.stats.attack, 'arcane');
+                        }
                     }
-                }
-                projectile.destroy(); // Remove projectile
+                });
+                this.scene.tweens.add({
+                    targets: this,
+                    scale: 1.1,
+                    duration: 100,
+                    yoyo: true,
+                    ease: 'Sine.easeInOut',
+                    onComplete: () => this.setScale(1)
+                });
+
+            } else if (this.raceConfig.id === GAME_CONFIG.RACES.ORC.id) {
+                projectileColor = 0x00FF00;
+                const projectile = this.scene.add.circle(this.x, this.y, 10, projectileColor).setDepth(2);
+                this.scene.tweens.add({
+                    targets: projectile,
+                    x: target.x,
+                    y: target.y,
+                    duration: projectileDuration,
+                    onComplete: (tween, targets) => {
+                        targets[0].destroy();
+                        if (target && target.active) {
+                            this.scene.tweens.add({
+                                targets: this.scene.add.circle(target.x, target.y, this.stats.splashRadius, 0x00FF00, 0.2).setDepth(1),
+                                scale: { from: 0, to: 1 },
+                                alpha: { from: 0.8, to: 0 },
+                                duration: 150,
+                                onComplete: (t, objs) => objs[0].destroy()
+                            });
+
+                            this.scene.enemies.getChildren().forEach(enemy => {
+                                const distance = Phaser.Math.Distance.Between(target.x, target.y, enemy.x, enemy.y);
+                                if (distance <= this.stats.splashRadius && enemy.active) {
+                                    enemy.takeDamage(this.stats.attack, 'nature');
+                                }
+                            });
+                        }
+                    }
+                });
+                this.scene.tweens.add({
+                    targets: this,
+                    angle: { from: -5, to: 5 },
+                    duration: 80,
+                    yoyo: true,
+                    repeat: 2,
+                    ease: 'Sine.easeInOut',
+                    onComplete: () => this.setAngle(0)
+                });
+            } else if (this.raceConfig.id === GAME_CONFIG.RACES.UNDEAD.id) {
+                projectileColor = 0xAA00FF;
+                const projectile = this.scene.add.circle(this.x, this.y, 6, projectileColor).setDepth(2);
+                this.scene.tweens.add({
+                    targets: projectile,
+                    x: target.x,
+                    y: target.y,
+                    duration: projectileDuration * 0.5,
+                    onComplete: (tween, targets) => {
+                        targets[0].destroy();
+                        if (target && target.active) {
+                            target.takeDamage(this.stats.attack, 'shadow');
+                            target.applyPoison(this.stats.poisonDuration, this.stats.poisonTickDamage);
+                        }
+                    }
+                });
+                this.scene.tweens.add({
+                    targets: this,
+                    alpha: { from: 1, to: 0.8 },
+                    duration: 100,
+                    yoyo: true,
+                    ease: 'Sine.easeInOut',
+                    onComplete: () => this.setAlpha(1)
+                });
             }
-        });
-
-        // Firing animation (e.g., a quick flash)
-        this.scene.tweens.add({
-            targets: this.top,
-            scale: 1.1,
-            duration: 100,
-            yoyo: true,
-            ease: 'Sine.easeInOut'
-        });
+        }
     }
 
-    showRange() {
-        this.rangeIndicator.setVisible(true);
-    }
-
-    hideRange() {
-        this.rangeIndicator.setVisible(false);
+    destroy(fromScene) {
+        if (this.rangeIndicator) {
+            this.rangeIndicator.destroy(fromScene);
+        }
+        super.destroy(fromScene);
     }
 }
