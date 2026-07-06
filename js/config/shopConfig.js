@@ -8,7 +8,7 @@ const SHOP_CONFIG = {
             baseCost: 100,
             costMultiplier: 1.5,
             effect: (level) => level * 50, // +50 gold per level
-            maxLevel: 10 // Max level for this upgrade
+            maxLevel: 10
         },
         'hero_starting_hp': {
             name: 'Hero Starting HP',
@@ -16,7 +16,7 @@ const SHOP_CONFIG = {
             baseCost: 150,
             costMultiplier: 1.4,
             effect: (level) => level * 50, // +50 HP per level
-            maxLevel: 15 // Max level for this upgrade
+            maxLevel: 15
         },
         'all_towers_atk_bonus': {
             name: 'All Towers Attack Bonus',
@@ -24,7 +24,7 @@ const SHOP_CONFIG = {
             baseCost: 200,
             costMultiplier: 1.6,
             effect: (level) => level * 5, // +5 attack per level
-            maxLevel: 20 // Max level for this upgrade
+            maxLevel: 20
         },
         'wave_gold_bonus': {
             name: 'Wave Gold Bonus',
@@ -32,7 +32,7 @@ const SHOP_CONFIG = {
             baseCost: 120,
             costMultiplier: 1.3,
             effect: (level) => level * 0.05, // +5% gold per wave level
-            maxLevel: 10 // Max level for this upgrade
+            maxLevel: 10
         }
     }
 };
