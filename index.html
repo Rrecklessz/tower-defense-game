@@ -1318,6 +1318,123 @@ function startGame(r){
 function resize(){const w=window.innerWidth,h=window.innerHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();}
 window.addEventListener('resize',resize);resize();
 
+// ═══════════════════════════════════════════════════════
+// SOUND ENGINE — Web Audio, no files needed
+// ═══════════════════════════════════════════════════════
+let audioCtx=null;
+function getAC(){if(!audioCtx){try{audioCtx=new(window.AudioContext||window.webkitAudioContext)();}catch(e){}}return audioCtx;}
+function playTone(freq,type,dur,vol=.15,delay=0){
+  try{const ac=getAC();if(!ac)return;
+    const o=ac.createOscillator(),g=ac.createGain();
+    o.connect(g);g.connect(ac.destination);o.type=type;
+    o.frequency.setValueAtTime(freq,ac.currentTime+delay);
+    o.frequency.exponentialRampToValueAtTime(freq*.5,ac.currentTime+delay+dur);
+    g.gain.setValueAtTime(vol,ac.currentTime+delay);
+    g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+delay+dur);
+    o.start(ac.currentTime+delay);o.stop(ac.currentTime+delay+dur);
+  }catch(e){}
+}
+function playNoise(dur,vol=.08,freq=600){
+  try{const ac=getAC();if(!ac)return;
+    const buf=ac.createBuffer(1,ac.sampleRate*dur,ac.sampleRate);
+    const d=buf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+    const src=ac.createBufferSource(),flt=ac.createBiquadFilter(),g=ac.createGain();
+    flt.type='bandpass';flt.frequency.value=freq;
+    g.gain.setValueAtTime(vol,ac.currentTime);g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+dur);
+    src.buffer=buf;src.connect(flt);flt.connect(g);g.connect(ac.destination);
+    src.start();src.stop(ac.currentTime+dur);
+  }catch(e){}
+}
+function sndPlace()   {playTone(320,'square',.07,.12);playTone(480,'sine',.12,.1,.06);}
+function sndUpgrade() {[440,554,659,880].forEach((f,i)=>playTone(f,'sine',.18,.13,i*.06));}
+function sndError()   {playTone(200,'square',.09,.12);playTone(160,'square',.09,.12,.1);}
+function sndKill()    {playNoise(.06,.12,500);playTone(200,'sawtooth',.05,.08);}
+function sndBossDie() {[110,138,165,220,277].forEach((f,i)=>{playTone(f,'sawtooth',.4,.2,i*.08);});playNoise(.5,.18,150);}
+function sndSell()    {playTone(440,'sine',.06,.08);playTone(330,'sine',.08,.08,.08);}
+function sndWaveGo()  {[220,180,140].forEach((f,i)=>playTone(f,'sawtooth',.18,.2,i*.08));playNoise(.1,.1,400);}
+function sndWaveClear(){[523,659,784,1047].forEach((f,i)=>playTone(f,'sine',.3,.18,i*.1));}
+function sndHeroPlace(){[330,415,523,659,784].forEach((f,i)=>playTone(f,'sine',.25,.16,i*.07));}
+function sndLevelUp() {[523,659,784,1047,1319].forEach((f,i)=>playTone(f,'sine',.35,.2,i*.08));}
+function sndComboHit(){const f=220+comboCount*40;playTone(f,'sine',.14,.18);playTone(f*1.5,'sine',.1,.1,.07);}
+function sndShopBuy() {[440,550,660].forEach((f,i)=>playTone(f,'sine',.14,.13,i*.05));}
+function sndVictory() {const n=[523,659,784,523,659,784,1047,784,659,523,659,784,1047];n.forEach((f,i)=>{playTone(f,'sine',.28,.22,i*.12);playTone(f*.5,'sawtooth',.2,.08,i*.12);});}
+
+// Wire sounds into game — safe because we're in same script
+const _origKillE = killEnemy;
+killEnemy = function(e){
+  if(e&&!e.dead){e.isBoss?sndBossDie():sndKill();}
+  _origKillE(e);
+};
+
+const _origSendWave = sendWave;
+sendWave = function(){
+  const wasActive=waveActive;
+  _origSendWave();
+  if(!wasActive)setTimeout(sndWaveGo,80);
+};
+
+const _origStartCD = startCD;
+startCD = function(){
+  if(wave>0)sndWaveClear();
+  _origStartCD();
+};
+
+const _origShowGO = showGO;
+showGO = function(win){
+  _origShowGO(win);
+  setTimeout(()=>win?sndVictory():playTone(120,'sawtooth',.8,.2),200);
+};
+
+const _origAddCombo = addCombo;
+addCombo = function(){
+  _origAddCombo();
+  if(comboCount>=3)sndComboHit();
+};
+
+const _origHeroGainXP = heroGainXP;
+let _prevHeroLevel = 1;
+heroGainXP = function(amt){
+  _prevHeroLevel=heroLevel;
+  _origHeroGainXP(amt);
+  if(heroLevel>_prevHeroLevel)sndLevelUp();
+};
+
+const _origPlaceHero = placeHero;
+placeHero = function(){
+  const was=heroPlaced;
+  _origPlaceHero();
+  if(!was&&heroPlaced)sndHeroPlace();
+};
+
+// Shop sound — patch shop item clicks after DOM ready
+document.addEventListener('click',function sndShopPatch(ev){
+  if(ev.target.closest&&ev.target.closest('.si'))sndShopBuy();
+  if(ev.target.closest&&ev.target.closest('.tb')&&race)sndPlace();
+});
+
+// Tower placement + upgrade sounds via tap handler patch
+const _origHandleTap=handleTap;
+function handleTap(ev){
+  if(!race||gOver)return;
+  const t=getHit(ev);if(!t)return;
+  const key=t.c+','+t.r,ex=towerMap.get(key);
+  if(ex){
+    if(selT==='sell')sndSell();
+    else if(ex.data.level<3&&gold>=60)sndUpgrade();
+    else if(ex.data.level>=3||gold<60)sndError();
+  } else if(!t.isPath&&selT!=='sell'){
+    const def=getTD(selT);
+    if(def&&gold>=def.cost)sndPlace();
+    else sndError();
+  } else {sndError();}
+}
+// Re-register tap with sound (remove old, add new)
+cv.removeEventListener('click',handleTap);
+cv.addEventListener('click',handleTap);
+
+// ═══════════════════════════════════════════════════════
+// MAIN LOOP
+// ═══════════════════════════════════════════════════════
 function loop(){
   requestAnimationFrame(loop);
   if(race&&!gOver){const steps=paused?0:gameSpeed;for(let i=0;i<steps;i++){tick++;update();}}
@@ -1328,173 +1445,3 @@ loop();
 </script>
 </body>
 </html>
-<script>
-// ═══════════════════════════════════════════════════════
-// SOUND ENGINE — Web Audio API, no files needed
-// ═══════════════════════════════════════════════════════
-const AudioCtx = window.AudioContext || window.webkitAudioContext;
-let audioCtx = null;
-
-function getAudio() {
-  if (!audioCtx) audioCtx = new AudioCtx();
-  return audioCtx;
-}
-
-function playTone(freq, type, duration, vol=0.18, delay=0) {
-  try {
-    const ctx = getAudio();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, ctx.currentTime + delay);
-    osc.frequency.exponentialRampToValueAtTime(freq * 0.5, ctx.currentTime + delay + duration);
-    gain.gain.setValueAtTime(vol, ctx.currentTime + delay);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + duration);
-    osc.start(ctx.currentTime + delay);
-    osc.stop(ctx.currentTime + delay + duration);
-  } catch(e) {}
-}
-
-function playNoise(duration, vol=0.08, freq=800) {
-  try {
-    const ctx = getAudio();
-    const buf = ctx.createBuffer(1, ctx.sampleRate * duration, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1);
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.value = freq;
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(vol, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
-    src.connect(filter); filter.connect(gain); gain.connect(ctx.destination);
-    src.start(); src.stop(ctx.currentTime + duration);
-  } catch(e) {}
-}
-
-// Sound effects
-function sndPlace()    { playTone(320, 'square', .08, .12); playTone(480, 'sine', .12, .1, .05); }
-function sndUpgrade()  { [440,554,659,880].forEach((f,i)=>playTone(f,'sine',.18,.14,i*.06)); }
-function sndShoot()    { playTone(280,'sawtooth',.06,.07); }
-function sndShootIce() { playTone(660,'sine',.1,.09); playTone(880,'sine',.1,.06,.04); }
-function sndShootLit() { playNoise(.05,.12,1800); playTone(1200,'square',.05,.08); }
-function sndShootFire(){ playTone(180,'sawtooth',.09,.1); playNoise(.07,.09,300); }
-function sndHit()      { playNoise(.06,.14,400); }
-function sndKill()     { playTone(220,'sawtooth',.05,.1); playNoise(.08,.1,600); }
-function sndBossHit()  { playTone(80,'sawtooth',.18,.22); playNoise(.14,.18,200); }
-function sndBossDie()  { [110,138,165,220,277,330].forEach((f,i)=>{ playTone(f,'sawtooth',.4,.2,i*.08); playTone(f*2,'sine',.3,.1,i*.08+.05); }); playNoise(.6,.2,150); }
-function sndSell()     { playTone(440,'sine',.06,.08); playTone(330,'sine',.08,.08,.08); }
-function sndWaveClear(){ [523,659,784,1047].forEach((f,i)=>playTone(f,'sine',.3,.18,i*.1)); }
-function sndWaveStart(){ [220,180,140].forEach((f,i)=>playTone(f,'sawtooth',.18,.2,i*.08)); playNoise(.12,.1,400); }
-function sndHeroPlace(){ [330,415,523,659,784].forEach((f,i)=>playTone(f,'sine',.25,.16,i*.07)); }
-function sndHeroAbil() { [880,1109,1319].forEach((f,i)=>{ playTone(f,'sine',.3,.2,i*.06); playTone(f*.5,'sawtooth',.2,.1,i*.06); }); }
-function sndLevelUp()  { [523,659,784,1047,1319].forEach((f,i)=>playTone(f,'sine',.35,.2,i*.08)); }
-function sndError()    { playTone(200,'square',.1,.1); playTone(160,'square',.1,.1,.1); }
-function sndCombo()    { const f=220*comboCount;playTone(f,'sine',.15,.2);playTone(f*1.5,'sine',.1,.1,.08); }
-function sndShopBuy()  { [440,550,660].forEach((f,i)=>playTone(f,'sine',.15,.14,i*.05)); }
-function sndVictory()  {
-  // Fanfare
-  const notes=[523,659,784,523,659,784,1047,784,659,523,659,784,1047];
-  notes.forEach((f,i)=>{ playTone(f,'sine',.28,.22,i*.12); playTone(f*.5,'sawtooth',.2,.08,i*.12); });
-}
-
-// ── PATCH game functions to add sounds ─────────────────
-// Wait for game to load then patch
-setTimeout(()=>{
-
-// Patch placeHero
-const _placeHero = window.placeHero;
-window.placeHero = function() {
-  _placeHero();
-  if(heroPlaced) sndHeroPlace();
-};
-
-// Patch handleTap for tower placement sounds
-const origHandleTap = cv.onclick;
-cv.addEventListener('click', (ev) => {
-  if(!race||gOver) return;
-  const t = getHit(ev);
-  if(!t) return;
-  const key = t.c+','+t.r;
-  const ex = towerMap.get(key);
-  if(ex) {
-    if(selT==='sell') sndSell();
-    else if(ex.data.level<3) { if(gold>=60) sndUpgrade(); else sndError(); }
-  } else if(!t.isPath && selT!=='sell') {
-    const def = getTD(selT);
-    if(def && gold>=def.cost) sndPlace();
-    else sndError();
-  } else if(t.isPath || selT==='sell') sndError();
-}, true); // capture — fires before placement logic
-
-// Patch killEnemy
-const _kill = window.killEnemy;
-window.killEnemy = function(e) {
-  if(e.dead) return;
-  if(e.isBoss) sndBossDie();
-  else sndKill();
-  _kill(e);
-};
-
-// Patch sendWave
-const _sendWave = window.sendWave;
-window.sendWave = function() {
-  _sendWave();
-  if(!waveActive) return; // already active
-  setTimeout(()=>sndWaveStart(), 100);
-};
-
-// Patch startCD — wave clear sound
-const _startCD = window.startCD;
-window.startCD = function() {
-  if(wave>0) sndWaveClear();
-  _startCD();
-};
-
-// Patch showGO
-const _showGO = window.showGO;
-window.showGO = function(win) {
-  _showGO(win);
-  if(win) sndVictory();
-  else setTimeout(()=>{ playTone(220,'sawtooth',.5,.2); playTone(160,'sawtooth',.6,.2,.3); },200);
-};
-
-// Patch addCombo
-const _addCombo = window.addCombo;
-window.addCombo = function() {
-  _addCombo();
-  if(comboCount>=3) sndCombo();
-};
-
-// Patch heroGainXP for level up sound
-const _heroGainXP = window.heroGainXP;
-window.heroGainXP = function(amt) {
-  const prevLvl = heroLevel;
-  _heroGainXP(amt);
-  if(heroLevel > prevLvl) sndLevelUp();
-};
-
-// Patch shop buy
-const shopItems = document.querySelectorAll('.si');
-shopItems.forEach(si => {
-  const orig = si.onclick;
-  si.onclick = function(e) {
-    sndShopBuy();
-    if(orig) orig.call(this, e);
-  };
-});
-
-// Patch tower shooting in update — add shoot sounds per tower type
-const _update = window.update;
-let shootSoundCooldown = 0;
-window.update = function() {
-  _update();
-  if(shootSoundCooldown>0) shootSoundCooldown--;
-};
-
-console.log('🔊 Sound engine loaded');
-}, 300);
-</script>
